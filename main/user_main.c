@@ -15,7 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
-
+#include "freertos/semphr.h"
 #include "driver/gpio.h"
 
 #include "esp_log.h"
@@ -37,22 +37,78 @@ static const char *TAG = "main";
 #define GPIO_INPUT_IO_0     0
 #define GPIO_INPUT_PIN_SEL  (1ULL<<GPIO_INPUT_IO_0)
 
-static xQueueHandle gpio_evt_queue = NULL;
+static SemaphoreHandle_t mutex = NULL;
 
-static void gpio_isr_handler(void *arg)
+static void active_delay_500ms()
 {
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+    uint32_t delay_time = 500;
+    uint32_t start  = xTaskGetTickCount();
+    uint32_t status = xTaskGetTickCount();
+    uint32_t end    = (delay_time / portTICK_RATE_MS) + start;
+    while (status < end)
+    {
+        status = xTaskGetTickCount();
+    }
 }
 
-static void gpio_task_example(void *arg)
+static void gpio_task_example1(void *arg)
 {
-    uint32_t io_num;
+    bool pin_out = 1;
+    while(1)
+    {
+        if (xSemaphoreTake(mutex,(TickType_t)1) == pdTRUE) 
+        {
+            gpio_set_level(GPIO_OUTPUT_IO_0, pin_out); 
+            //active delay 0.5s
+            active_delay_500ms();
+            xSemaphoreGive(mutex);
+            //task delay 1s
+            vTaskDelay(1000/portTICK_RATE_MS);
+        }
+    
+        else
+        {
+            printf("Task1 Failed to take Mutex \n");
+        }
+    }
+}
 
-    for (;;) {
-        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            ESP_LOGI(TAG, "GPIO[%d] intr, val: %d\n", io_num, 
-                                                    gpio_get_level(io_num));
+static void gpio_task_example2(void *arg)
+{
+    bool pin_out = 0;
+    while(1)
+    {
+        if (xSemaphoreTake(mutex,(TickType_t)1) == pdTRUE) 
+        {
+            gpio_set_level(GPIO_OUTPUT_IO_0, pin_out); 
+            //active delay 0.5s
+            active_delay_500ms();
+            xSemaphoreGive(mutex);
+            //task delay 1s
+            vTaskDelay(1000/portTICK_RATE_MS);
+        }
+        else
+        {
+        printf("Task2 Failed to take Mutex \n");
+        }
+    }    
+}
+
+static void gpio_task_example3(void *arg)
+{
+    uint32_t pin_out;
+    while(1){
+        if (xSemaphoreTake(mutex,(TickType_t)1) == pdTRUE) 
+        {
+            pin_out = gpio_get_level(GPIO_OUTPUT_IO_0);
+            printf("Output level of pin is : %d \n", pin_out);
+            xSemaphoreGive(mutex);
+            //task delay 1s
+            vTaskDelay(1000/portTICK_RATE_MS);
+        }
+        else
+        {
+            printf("Task3 Failed to take Mutex \n");
         }
     }
 }
@@ -72,36 +128,11 @@ void app_main(void)
     io_conf.pull_up_en = 0;
     //configure GPIO with the given settings
     gpio_config(&io_conf);
-
-    //interrupt of falling edge
-    io_conf.intr_type = GPIO_INTR_NEGEDGE;
-    //bit mask of the pins, use GPIO0 here
-    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
-    //set as input mode
-    io_conf.mode = GPIO_MODE_INPUT;
-    //enable pull-up mode
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
-    gpio_set_intr_type(GPIO_INPUT_IO_0, GPIO_INTR_NEGEDGE);
-    //create a queue to handle gpio event from isr
-    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    //start gpio task
+    mutex = xSemaphoreCreateMutex();
     
-    xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
-
-    //install gpio isr service
-    gpio_install_isr_service(0);
-    //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(GPIO_INPUT_IO_0, gpio_isr_handler, 
-                                                  (void *) GPIO_INPUT_IO_0);
-
-    int cnt = 0;
-
-    while (1) {
-        ESP_LOGI(TAG, "cnt: %d\n", cnt++);
-        vTaskDelay(1000 / portTICK_RATE_MS);
-        gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);
-    }
+    xTaskCreate(gpio_task_example1, "gpio_task_example1", 2048, NULL, 8, NULL);
+    xTaskCreate(gpio_task_example2, "gpio_task_example2", 2048, NULL, 9, NULL);
+    xTaskCreate(gpio_task_example3, "gpio_task_example3", 2048, NULL, 10, NULL);
 }
 
 
