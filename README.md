@@ -21,8 +21,3 @@ P2
 task.h is the header file we need to include
 vTaskGetRunTimeStats is used to find task performance. It is included in task.h
 
-The questions are split up into separate repositories. The links to the other repositories are below.
-
-https://github.com/MasterStylez/Lab2_Q2a_816024926
-https://github.com/MasterStylez/Lab2_Q2b_816024926
-https://github.com/MasterStylez/Lab2_Q3_816024926
